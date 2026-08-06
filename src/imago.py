@@ -10,8 +10,8 @@ import random
 
 try:
     from PIL import Image, ImageDraw
-except ImportError, msg:
-    print >> sys.stderr, msg
+except ImportError as msg:
+    print(msg, file=sys.stderr)
     sys.exit(1)
 
 import linef
@@ -57,7 +57,7 @@ def main():
 
     try:
         image = Image.open(args.files[0])
-    except IOError, msg:
+    except IOError as msg:
         print >> sys.stderr, msg
         return 1
     if image.mode == 'P':
@@ -139,16 +139,16 @@ def main():
     if len(args.files) == 1:
 
         if args.sgf_output:
-            print board.asSGFsetPos()
+            print(board.asSGFsetPos())
         else:
-            print board
+            print(board)
     
     else:
         game = output.Game(19, board) #TODO size parameter
         for f in args.files[1:]:
             try:
                 image = Image.open(f)
-            except IOError, msg:
+            except IOError as msg:
                 print >> sys.stderr, msg
                 continue
             if verbose:
@@ -162,10 +162,10 @@ def main():
             if args.sgf_output:
                 game.addMove(board)
             else:
-                print board
+                print(board)
 
         if args.sgf_output:
-            print game.asSGF()
+            print(game.asSGF())
 
     return 0
 

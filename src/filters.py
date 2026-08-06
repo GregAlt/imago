@@ -70,8 +70,8 @@ def high_pass(image, height):
     new_image = Image.new('L', image.size)
     new_image_l = new_image.load()
     
-    for x in xrange(image.size[0]):
-        for y in xrange(image.size[1]):
+    for x in range(image.size[0]):
+        for y in range(image.size[1]):
             if image_l[x, y] < height:
                 new_image_l[x, y] = 0
             else:
@@ -83,7 +83,7 @@ def components(image, diameter):
     # TODO comment 
     # TODO refactor
     image_l = image.load()
-    new_image_l = np.zeros(image.size, dtype=np.int)
+    new_image_l = np.zeros(image.size, dtype=int)
 
     components = [None]
     comp_counter = 1
@@ -116,8 +116,8 @@ def components(image, diameter):
                         components[c1] = components[c1] | components[c2]
                         components[c2] = None
     elif diameter == 2:
-        for y in xrange(2, image.size[1] - 2):
-            for x in xrange(2, image.size[0] - 2):
+        for y in range(2, image.size[1] - 2):
+            for x in range(2, image.size[0] - 2):
                 if image_l[x, y]:
 
                     s = {0}
@@ -138,7 +138,7 @@ def components(image, diameter):
                         try:
                             components[c].add((x, y))
                         except AttributeError:
-                            print s, c
+                            print(s, c)
                             raise AttributeError
                     else:
                         s.remove(0)

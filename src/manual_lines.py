@@ -50,6 +50,9 @@ def lines(corners):
         x, y, z = np.matmul(mC, np.array([point[0], point[1], 1]))
         return (x/z, y/z)
 
-    l1_, l2_, l3_, l4_ = map(lambda x: map(perspective, x), [l1, l2, l3, l4])
+    l1_, l2_, l3_, l4_ = map(lambda x: list(map(perspective, x)), [l1, l2, l3, l4])
     
-    return (zip(l1_, l3_), zip(l2_, l4_))
+    # Return concrete lists (Python 3 `zip` returns iterators). The original
+    # code returned sequences that supported concatenation; returning lists
+    # preserves compatibility with the older codebase.
+    return (list(zip(l1_, l3_)), list(zip(l2_, l4_)))

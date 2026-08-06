@@ -20,8 +20,9 @@ class Board:
         for i in range(self.size):
             line = []
             for j in range(self.size):
-                line.append(self.stones[k])
-                k += 1
+                if len(self.stones) > k:
+                    line.append(self.stones[k])
+                    k += 1
             lines.append(" ".join(line))
         lines.append("")
         return ("\n".join(lines))

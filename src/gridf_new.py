@@ -35,8 +35,8 @@ class Diagonal_model:
 
     def initial_g(self):
         l1, l2 = random.sample(self.lines, 2)
-        for i in xrange(len(l1)):
-            for j in xrange(len(l2)):
+        for i in range(len(l1)):
+            for j in range(len(l2)):
                 if i == j:
                     continue
                 if l1[i] and l2[j]:
@@ -47,10 +47,10 @@ class Diagonal_model:
 
     def initial(self):
         try:
-            nxt = self.gen.next()
+            nxt = next(self.gen)
         except StopIteration:
             self.gen = self.initial_g()
-            nxt = self.gen.next()
+            nxt = next(self.gen)
         return nxt
 
     def get(self, sample):
@@ -63,7 +63,7 @@ class Diagonal_model:
         cons = []
         score = 0
         a, b, c = est
-        dst = lambda (x, y): abs(a * x + b * y + c) / sqrt(a*a+b*b)
+        dst = lambda xy: abs(a * xy[0] + b * xy[1] + c) / sqrt(a*a+b*b)
         l1 = None
         l2 = None
         for p in self.data:
@@ -79,8 +79,10 @@ class Diagonal_model:
 
         return score, cons
 
-def intersection((a1, b1, c1), (a2, b2, c2)):
+def intersection(line1, line2):
     """Intersection of two lines, given by coefficients in their equations."""
+    a1, b1, c1 = line1
+    a2, b2, c2 = line2
     delim = float(a1 * b2 - b1 * a2)
     if delim == 0:
         return None
@@ -90,9 +92,9 @@ def intersection((a1, b1, c1), (a2, b2, c2)):
 
 class Point:
     """Class that represents a point in 2D."""
-    def __init__(self, (x, y)):
-        self.x = x
-        self.y = y
+    def __init__(self, pt):
+        self.x = pt[0]
+        self.y = pt[1]
 
     def __getitem__(self, key):
         if key == 0:
@@ -118,13 +120,13 @@ class Line:
     each intersection has two lines that go through it.
     """
 
-    def __init__(self, (a, b, c)):
-        self.a, self.b, self.c = (a, b, c)
+    def __init__(self, pt):
+        self.a, self.b, self.c = pt
         self.points = []
 
     @classmethod
-    def from_ad(cls, (a, d), size):
-        p = linef.line_from_angl_dist((a, d), size)
+    def from_ad(cls, ad, size):
+        p = linef.line_from_angl_dist(ad, size)
         return cls(ransac.points_to_line(*p))
 
     def __iter__(self):
@@ -167,7 +169,7 @@ def gen_corners(d1, d2, min_size):
             # there is not a corresponding intersection
             # TODO create an intersection?
         try:
-            yield manual.lines(map(lambda p: p.to_tuple(), [c2, c1, c3, c4]))
+            yield manual.lines(list(map(lambda p: p.to_tuple(), [c2, c1, c3, c4])))
         except (TypeError):
             pass
             # the square was too small to fit 17 lines inside
@@ -204,8 +206,8 @@ def find(lines, size, l1, l2, bounds, hough, show_all, do_something, logger):
     easily exchanged, tested and compared.
     """
 
-    new_lines1 = map(lambda l: Line.from_ad(l, size), lines[0])
-    new_lines2 = map(lambda l: Line.from_ad(l, size), lines[1])
+    new_lines1 = list(map(lambda l: Line.from_ad(l, size), lines[0]))
+    new_lines2 = list(map(lambda l: Line.from_ad(l, size), lines[1]))
     for l1 in new_lines1:
         for l2 in new_lines2:
             p = Point(intersection(l1, l2))
@@ -221,7 +223,7 @@ def find(lines, size, l1, l2, bounds, hough, show_all, do_something, logger):
         y = y - size[1] / 2
         return sqrt(x * x + y * y)
 
-    for n_tries in xrange(3):
+    for n_tries in range(3):
         logger("finding the diagonals")
         model = Diagonal_model(points)
         diag_lines = ransac.ransac_multi(6, points, 2,
@@ -229,7 +231,7 @@ def find(lines, size, l1, l2, bounds, hough, show_all, do_something, logger):
         diag_lines = [l[0] for l in diag_lines]
         centers = []
         cen_lin = []
-        for i in xrange(len(diag_lines)):
+        for i in range(len(diag_lines)):
             line1 = diag_lines[i]
             for line2 in diag_lines[i+1:]:
                 c = intersection(line1, line2)
@@ -241,7 +243,8 @@ def find(lines, size, l1, l2, bounds, hough, show_all, do_something, logger):
             import matplotlib.pyplot as pyplot
             from PIL import Image
 
-            def plot_line_g((a, b, c), max_x):
+            def plot_line_g(abc, max_x):
+                a, b, c = abc
                 find_y = lambda x: - (c + a * x) / b
                 pyplot.plot([0, max_x], [find_y(0), find_y(max_x)], color='b')
 
@@ -256,8 +259,8 @@ def find(lines, size, l1, l2, bounds, hough, show_all, do_something, logger):
             pyplot.gca().invert_yaxis()
             fig.canvas.draw()
             size_f = fig.canvas.get_width_height()
-            buff = fig.canvas.tostring_rgb()
-            image_p = Image.frombytes('RGB', size_f, buff, 'raw')
+            buff = fig.canvas.tostring_argb()
+            image_p = Image.frombytes('RGBA', size_f, buff, 'raw')
             do_something(image_p, "finding diagonals")
 
         logger("finding the grid")
@@ -275,7 +278,7 @@ def find(lines, size, l1, l2, bounds, hough, show_all, do_something, logger):
             grids = list(gen_corners(diag1, diag2, min(size) / 3))
             
             try:
-                new_sc, new_grid = min(map(lambda g: (score(sum(g, []), data), g), grids))
+                new_sc, new_grid = min(list(map(lambda g: (score(sum(g, []), data), g), grids)))
                 if new_sc < sc:
                     sc, grid = new_sc, new_grid
             except ValueError:

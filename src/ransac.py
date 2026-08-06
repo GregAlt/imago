@@ -7,14 +7,16 @@ import numpy as NP
 # TODO comments
 # TODO threshold
 
-def points_to_line((x1, y1), (x2, y2)):
+def points_to_line(p1, p2):
     """Take two points, return coefficitiens for line that connects them."""
+    x1, y1 = p1
+    x2, y2 = p2
     return (y2 - y1, x1 - x2, x2 * y1 - x1 * y2)
 
 def filter_near(data, line, distance):
     """Find points in *data* that are closer than *distance* to *line*."""
     a, b, c = line
-    dst = lambda (x, y): abs(a * x + b * y + c) / sqrt(a*a+b*b)
+    dst = lambda xy: abs(a * xy[0] + b * xy[1] + c) / sqrt(a*a+b*b)
     is_near = lambda p: dst(p) <= distance
     return [p for p in data if is_near(p)]
 
@@ -45,7 +47,7 @@ class Linear_model:
         cons = []
         score = 0
         a, b, c = est
-        dst = lambda (x, y): abs(a * x + b * y + c) / sqrt(a*a+b*b)
+        dst = lambda xy: abs(a * xy[0] + b * xy[1] + c) / sqrt(a*a+b*b)
         for p in self.data:
             d = dst(p)
             if d <= dist:
@@ -78,7 +80,7 @@ def estimate(data, dist, k, modelClass=Linear_model, model=None):
     best = float("inf")
     estimate = None
     consensual = None
-    for i in xrange(0, k):
+    for i in range(0, k):
         new, new_estimate, new_consensual = iterate(model, dist)
         if new < best:
             best = new
@@ -92,7 +94,7 @@ def ransac_multi(m, data, dist, k, modelClass=Linear_model, model=None):
         model = modelClass(data)
     ests = []
     cons = []
-    for i in xrange(m):
+    for i in range(m):
         est, cons_new = estimate(None, dist, k, model=model)
         model.remove(cons_new)
         ests.append((est, cons_new))

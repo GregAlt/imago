@@ -6,9 +6,9 @@ It is not used anywhere in the standard UI, serves only for debugging.
 
 try:
     import pygame
-except ImportError, msg:
+except ImportError as msg:
     import sys
-    print >> sys.stderr, msg
+    print(msg, file=sys.stderr)
     sys.exit(1)
 
 def show(image, caption='', name=None):

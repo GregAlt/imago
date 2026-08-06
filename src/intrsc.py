@@ -79,15 +79,15 @@ def board(image, intersections, show_all, do_something, logger):
         pyplot.ylim(0,1)
         fig.canvas.draw()
         size = fig.canvas.get_width_height()
-        buff = fig.canvas.tostring_rgb()
-        image_p = Image.frombytes('RGB', size, buff, 'raw')
+        buff = fig.canvas.tostring_argb()
+        image_p = Image.frombytes('RGBA', size, buff, 'raw')
         do_something(image_p, "color distribution")
 
     color_data = [(s[0], s[1]) for s in board_raw]
 
     init_x = sum(c[0] for c in color_data) / float(len(color_data))
 
-    clusters, score = k_means.cluster(3, 2,zip(color_data, range(len(color_data))),
+    clusters, score = k_means.cluster(3, 2,list(zip(color_data, range(len(color_data)))),
                                [[0., 0.5], [init_x, 0.5], [1., 0.5]])
 
     if show_all:
@@ -102,8 +102,8 @@ def board(image, intersections, show_all, do_something, logger):
         pyplot.ylim(0,1)
         fig.canvas.draw()
         size = fig.canvas.get_width_height()
-        buff = fig.canvas.tostring_rgb()
-        image_p = Image.frombytes('RGB', size, buff, 'raw')
+        buff = fig.canvas.tostring_argb()
+        image_p = Image.frombytes('RGBA', size, buff, 'raw')
         do_something(image_p, "color clustering")
 
     clusters[0] = [(p[1], 'B') for p in clusters[0]]
@@ -118,9 +118,9 @@ def board(image, intersections, show_all, do_something, logger):
 
     #TODO 19 should be a size parameter
     try:
-        for i in xrange(19):
-            for _ in xrange(19):
-                board_r.append(board_rg.next())
+        for i in range(19):
+            for _ in range(19):
+                board_r.append(next(board_rg))
     except StopIteration:
         pass
     
@@ -146,8 +146,8 @@ def intersection(l1, l2):
 # TODO remove the parameter get_all
 def intersections_from_angl_dist(lines, size, get_all=True):
     """Take grid-lines and size of the image. Return intersections."""
-    lines0 = map(lambda l: to_general(l, size), lines[0])
-    lines1 = map(lambda l: to_general(l, size), lines[1])
+    lines0 = list(map(lambda l: to_general(l, size), lines[0]))
+    lines1 = list(map(lambda l: to_general(l, size), lines[1]))
     intersections = []
     for l1 in lines1:
         line = []
@@ -167,8 +167,9 @@ def rgb2lumsat(color):
         saturation = 1. - ((3. * min(color)) / sum(color)) 
     return luma, saturation
 
-def stone_color_raw(image, (x, y)):
+def stone_color_raw(image, pt):
     """Given image and coordinates, return stone color."""
+    x, y = pt
     size = 3 
     points = []
     for i in range(-size, size + 1):
