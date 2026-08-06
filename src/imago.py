@@ -58,14 +58,14 @@ def main():
     try:
         image = Image.open(args.files[0])
     except IOError as msg:
-        print >> sys.stderr, msg
+        print(msg, file=sys.stderr)
         return 1
     if image.mode == 'P':
         image = image.convert('RGB')
     
     if image.size[0] > args.w:
         image = image.resize((args.w, int((float(args.w)/image.size[0]) *
-                              image.size[1])), Image.ANTIALIAS)
+                              image.size[1])), Image.LANCZOS)
 
     if not show_all:
         def nothing(a, b):
