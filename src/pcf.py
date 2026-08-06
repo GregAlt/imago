@@ -1,9 +1,10 @@
-"""Python translation of the original `pcf.c` helper functions.
+"""Python/numpy translation of the original `pcf.c` helper functions.
 
 Provides: combine(im_bg, im_fg), edge((x,y), image), hough((x,y), image, init_angle, dt)
 All image buffers are expected as bytes-like objects (e.g. `bytes` or `bytearray`).
 """
 from math import sin, cos
+import numpy as np
 
 def combine(im_bg, im_fg):
     """Return average background pixel value where foreground mask is set.
@@ -15,15 +16,17 @@ def combine(im_bg, im_fg):
     Returns:
         float average value (0.0 if no foreground pixels)
     """
-    # follow original C behavior where size comes from the second buffer
-    size = len(im_fg)
-    s = 0
-    area = 0
-    for i in range(size):
-        if im_fg[i]:
-            s += im_bg[i]
-            area += 1
-    return float(s) / area if area else 0.0
+    bg = np.frombuffer(im_bg, dtype=np.uint8)
+    fg = np.frombuffer(im_fg, dtype=np.uint8)
+
+    if fg.size == 0:
+        return 0.0
+
+    mask = fg != 0
+    if not np.any(mask):
+        return 0.0
+
+    return float(bg[mask].mean())
 
 
 def edge(dim, image):
@@ -38,47 +41,20 @@ def edge(dim, image):
     """
     x, y = dim
     size = x * y
-    img = image
-    out = bytearray(size)
+    img = np.frombuffer(image, dtype=np.uint8).reshape(y, x)
+    out = np.zeros((y, x), dtype=np.uint8)
 
-    # zero borders as in original C code
-    for i in range(2 * x):
-        if i < size:
-            out[i] = 0
-    for i in range(2 * x):
-        idx = (y - 2) * x + i
-        if 0 <= idx < size:
-            out[idx] = 0
-    for j in range(y):
-        if x * j < size:
-            out[x * j] = 0
-        if x * j + 1 < size:
-            out[x * j + 1] = 0
-        if x * j + x - 2 < size:
-            out[x * j + x - 2] = 0
-        if x * j + x - 1 < size:
-            out[x * j + x - 1] = 0
+    k = 5 # kernel size
+    k2 = k // 2
+    if x >= k and y >= k:
+        padded = np.pad(img.astype(np.int32), ((k2, k2), (k2, k2)), mode="constant")
+        windows = np.lib.stride_tricks.sliding_window_view(padded, (k, k))
+        window_sums = windows.sum(axis=(-2, -1))
+        center = img[k2:y - k2, k2:x - k2].astype(np.int32)
+        inner = window_sums[k2:y - k2, k2:x - k2] - (k**2 * center)
+        out[k2:y - k2, k2:x - k2] = np.clip(inner, 0, 255).astype(np.uint8)
 
-    # inner pixels: implement same neighbor sum as original
-    for i in range(2, x - 2):
-        for j in range(2, y - 2):
-            idx = x * j + i
-            # sum neighbors (same order as C code)
-            s = (
-                img[x * j + i - 2] + img[x * j + i - 1] + img[x * j + i + 1] + img[x * j + i + 2]
-                + img[x * (j - 2) + i - 2] + img[x * (j - 2) + i - 1] + img[x * (j - 2) + i] + img[x * (j - 2) + i + 1] + img[x * (j - 2) + i + 2]
-                + img[x * (j - 1) + i - 2] + img[x * (j - 1) + i - 1] + img[x * (j - 1) + i] + img[x * (j - 1) + i + 1] + img[x * (j - 1) + i + 2]
-                + img[x * (j + 2) + i - 2] + img[x * (j + 2) + i - 1] + img[x * (j + 2) + i] + img[x * (j + 2) + i + 1] + img[x * (j + 2) + i + 2]
-                + img[x * (j + 1) + i - 2] + img[x * (j + 1) + i - 1] + img[x * (j + 1) + i] + img[x * (j + 1) + i + 1] + img[x * (j + 1) + i + 2]
-                - (24 * img[idx])
-            )
-            if s < 0:
-                s = 0
-            if s > 255:
-                s = 255
-            out[idx] = int(s)
-
-    return bytes(out)
+    return bytes(out.tobytes())
 
 
 def hough(dim, image, init_angle, dt):
@@ -95,38 +71,48 @@ def hough(dim, image, init_angle, dt):
     """
     x, y = dim
     size = x * y
-    img = image
-
-    # accumulator matrix as flat list [angle_index * x + column]
-    matrix = [0] * size
+    img = np.frombuffer(image, dtype=np.uint8).reshape(y, x)
 
     cx = x / 2.0
     cy = y / 2.0
+    angles = np.arange(y, dtype=np.float64) * dt + init_angle
+    sin_a = np.sin(angles)
+    cos_a = np.cos(angles)
 
-    for i in range(x):
-        for j in range(y):
-            if img[j * x + i]:
-                for a in range(y):
-                    ang = (dt * a) + init_angle
-                    distance = ((i - cx) * sin(ang)) + ((j - cy) * -cos(ang)) + cx
-                    column = int(round(distance))
-                    if 0 <= column < x:
-                        matrix[a * x + column] += 1
+    coords = np.argwhere(img != 0)
+    if coords.size == 0:
+        return bytes(size)
 
-    # normalize matrix to 0..255
-    minv = min(matrix)
-    maxv = max(matrix)
-    denom = (maxv - minv + 1)
-    out = bytearray(size)
-    for i in range(size):
-        val = int(((matrix[i] - minv) / float(denom)) * 256.0)
-        if val < 0:
-            val = 0
-        if val > 255:
-            val = 255
-        out[i] = val
+    # Separate coordinates and expand dimensions to shape (N, 1) for broadcasting
+    i = coords[:, 0][:, None]  # Rows
+    j = coords[:, 1][:, None]  # Columns
 
-    return bytes(out)
+    # Compute distances using broadcasting -> Resulting shape is (N, y)
+    distances = ((j - cx) * sin_a) - ((i - cy) * cos_a) + cx
+
+    columns = np.rint(distances).astype(np.int32)
+    valid = (columns >= 0) & (columns < x)
+
+    # Generate the corresponding row indices 'a' (0 to y-1) for every non-zero coordinate
+    a_indices = np.broadcast_to(np.arange(y)[None, :], columns.shape)
+
+    rows_to_add = a_indices[valid]
+    cols_to_add = columns[valid]
+
+    # Unbuffered in-place accumulation to handle duplicate indices correctly
+    matrix = np.zeros((y, x), dtype=np.int32)
+    np.add.at(matrix, (rows_to_add, cols_to_add), 1)
+
+    minv = matrix.min()
+    maxv = matrix.max()
+    denom = maxv - minv + 1
+    out = np.zeros(size, dtype=np.uint8)
+    if denom > 0:
+        vals = ((matrix.ravel() - minv) / float(denom)) * 256.0
+        vals = np.clip(np.floor(vals).astype(np.int32), 0, 255)
+        out[:] = vals
+
+    return bytes(out.tobytes())
 
 
 __all__ = ["combine", "edge", "hough"]
