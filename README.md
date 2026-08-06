@@ -1,6 +1,11 @@
 I've updated my fork to Python 3 and replaced his optimized C file with an equivalent python for easier running. I haven't run through the test suite, but have tested:
 
-(imago) PS C:\[...]\imago\src> python imago.py -d ../image.jpg
+```
+(base) PS C:\[...]\imago> conda create -n imago python=3.10 pillow numpy matplotlib conda-forge::pygame
+(base) PS C:\[...]\imago> conda activate imago                                                
+(imago) PS C:\[...]\imago> python src/imago.py -d image.jpg
+```
+
 ```
 . . . . . . . . . . . . . . . . . . .  
 . . . . . . . . . . . . . . . . . . .  
