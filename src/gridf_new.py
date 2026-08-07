@@ -226,7 +226,8 @@ def find(lines, size, l1, l2, bounds, hough, show_all, do_something, logger):
     for n_tries in range(3):
         logger("finding the diagonals")
         model = Diagonal_model(points)
-        diag_lines = ransac.ransac_multi(6, points, 2,
+        ransac_dist = 2 
+        diag_lines = ransac.ransac_multi(6, points, ransac_dist,
                                          params.ransac_diagonal_iter, model=model)
         diag_lines = [l[0] for l in diag_lines]
         centers = []
@@ -270,9 +271,10 @@ def find(lines, size, l1, l2, bounds, hough, show_all, do_something, logger):
         grid = None
         for (line1, line2, c) in cen_lin:
             diag1 = Line(line1)
-            diag1.points = ransac.filter_near(data, diag1, 2)
+            filter_dist = 3 # not 2! otherwise we miss grid intersection points that are slightly off the diagonal
+            diag1.points = ransac.filter_near(data, diag1, filter_dist)
             diag2 = Line(line2)
-            diag2.points = ransac.filter_near(data, diag2, 2)
+            diag2.points = ransac.filter_near(data, diag2, filter_dist)
 
 
             grids = list(gen_corners(diag1, diag2, min(size) / 3))
