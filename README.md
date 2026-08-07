@@ -1,4 +1,4 @@
-I've updated my fork to Python 3 and replaced his optimized C file with an equivalent python for easier running. I haven't run through the test suite, but have tested:
+I've updated my fork to Python 3 and replaced his optimized C file with an equivalent python for easier running. Verified this works in Windows:
 
 ```
 (base) PS C:\[...]\imago> conda create -n imago python=3.10 pillow numpy matplotlib conda-forge::pygame
@@ -28,6 +28,26 @@ I've updated my fork to Python 3 and replaced his optimized C file with an equiv
 . . . . . . . . . . . . . . . . . . .  
 ```
 
+I converted the test runner to python from bash:
+```
+python runtests.py 
+```
+
+This generally succeeds, but I see a few failures, most due to detecting a grid that is exactly half the correct size spacing. This seems dependent, in-part, on the random seed. Notably, the hough transform and detected lines looks fine, it just erroneously prefers the half-sized grid in these cases:
+```
+tests failed:
+    C:\[...]\imago\tests\t3\t3_000.jpg
+    C:\[...]\imago\tests\t3\t3_001.jpg
+    C:\[...]\imago\tests\t3\t3_002.jpg
+    C:\[...]\imago\tests\t3\t3_050.jpg
+    C:\[...]\imago\tests\t3\t3_051.jpg
+```
+
+This one fails seemingly due to a minor issue with detecting stone color.
+```
+tests failed:
+    C:\[...]\imago\tests\t2\t2_101.jpg
+```
 Below is the readme from Tomas--note, it is out of date about required versions.
 
 # Imago Go Image Recognition
