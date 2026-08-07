@@ -32,18 +32,7 @@ I converted the test runner to python from bash:
 ```
 python runtests.py 
 ```
-
-This generally succeeds, but I see a few failures, most due to detecting a grid that is exactly half the correct size spacing. This seems dependent, in-part, on the random seed. Notably, the hough transform and detected lines looks fine, it just erroneously prefers the half-sized grid in these cases:
-```
-tests failed:
-    C:\[...]\imago\tests\t3\t3_000.jpg
-    C:\[...]\imago\tests\t3\t3_001.jpg
-    C:\[...]\imago\tests\t3\t3_002.jpg
-    C:\[...]\imago\tests\t3\t3_050.jpg
-    C:\[...]\imago\tests\t3\t3_051.jpg
-```
-
-This one fails seemingly due to a minor issue with detecting stone color.
+One fails seemingly due to a minor issue with detecting stone color. I think some small roundoff error on grid calculation shifts the grid sample point just off the stone. I suspect the primary problem is not shifting the grid points up half a stone height in world space using the homography from the perspective warp and the known expected relative size of stones vs grid widths. This would better center the grid sample points on the the stones.
 ```
 tests failed:
     C:\[...]\imago\tests\t2\t2_101.jpg
