@@ -131,7 +131,9 @@ def main():
             do_something(im_g, "grid", name="grid")
 
     intersections = intrsc.b_intersects(image, lines, show_all, do_something, logger)
-    board = intrsc.board(image, intersections, show_all, do_something, logger)
+    adjusted_intersections = intrsc.adjust_for_stone_thickness(intersections, image, show_all, do_something)
+
+    board = intrsc.board(image, adjusted_intersections, show_all, do_something, logger)
 
     logger("finished")
 
@@ -158,7 +160,7 @@ def main():
             if image.size[0] > args.w:
                 image = image.resize((args.w, int((float(args.w)/image.size[0]) *
                               image.size[1])), Image.ANTIALIAS)
-            board = intrsc.board(image, intersections, show_all, do_something, logger)
+            board = intrsc.board(image, adjusted_intersections, show_all, do_something, logger)
             if args.sgf_output:
                 game.addMove(board)
             else:

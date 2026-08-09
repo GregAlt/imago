@@ -10,6 +10,8 @@ import filters
 import k_means
 import output
 import linef
+import cv2
+import numpy as np
 
 def dst(line):
     """Return normalized line."""
@@ -188,3 +190,82 @@ def stone_color_raw(image, pt):
     hue, luma, saturation = colorsys.rgb_to_hls(*color)
     color = colorsys.hls_to_rgb(hue, 0.5, 1.)
     return luma, saturation, color, hue
+
+def adjust_for_stone_thickness(intersections, image, show_all, do_something):
+    """Given grid intersections on the board, use homography to find stone centers above the grid"""
+    # this doesn't have to be perfect, so it's ok making some reasonable assumptions
+    goban_width_mm = 439.0 # standard 19x19 goban grid is 424x454mm, average to square
+    go_stone_thickness_mm = 10.0 # Typical: size 28-36 (7.5 - 10.1mm), can be size 50 (14.3mm)
+
+    # typical phone camera with 80deg FOV, square pixels, and 640x480 resolution
+    fx = fy = 381.36 # f_pixels = W_pixels / (2 * tan(theta/2)) = 640 / (2 * tan(80deg/2))
+    cx, cy = 320.0, 240.0 # center of 640x480 image
+    K = np.array([[fx,  0, cx], [ 0, fy, cy], [ 0,  0,  1]], dtype=np.float32) # cam intrinsics
+
+    # Define source quadrilateral (world/surface in mm), assume flat, square grid
+    pts_src = np.array([[1, 1], [-1, 1], [-1, -1], [1, -1]], dtype=np.float32) * 0.5 * goban_width_mm
+
+    # Destination quadrilateral (perspective, in pixel coords)
+    hull = cv2.convexHull(np.array(sum(intersections, []), dtype=np.float32))
+    pts_dst = cv2.approxPolyDP(hull, 0.02 * cv2.arcLength(hull, True), True).reshape(-1, 2)
+
+    H, status = cv2.findHomography(pts_src, pts_dst, cv2.RANSAC, 5.0)
+    H_inv = np.linalg.inv(H)  # Invert to go from Pixel Space -> World Space
+  
+    # Extract true physical rotation and translation directly from H and K
+    # Stripping the camera intrinsics from the homography yields [r1, r2, t] up to a scale factor
+    r1_r2_t = np.linalg.inv(K) @ H
+
+    # Determine the physical scale factor based on the first rotation column vector
+    scale = np.linalg.norm(r1_r2_t[:, 0])
+    r1_r2_t_scaled = r1_r2_t / scale
+
+    r1 = r1_r2_t_scaled[:, 0:1]
+    r2 = r1_r2_t_scaled[:, 1:2]
+    r3 = np.cross(r1.flatten(), r2.flatten()).reshape(3, 1) 
+    R = np.hstack((r1, r2, r3)) # reconstructed 3D rotation matrix
+    t = r1_r2_t_scaled[:, 2:3] # translation in real-world mm
+
+    #from scipy.spatial.transform import Rotation
+    #euler_angles = Rotation.from_matrix(R).as_euler('xyz', degrees=True).astype(int)
+    #print(f"R: {R}, eulers:{euler_angles}, t: {t.T}")
+
+    v_world = np.array([[0.0], [0.0], [-go_stone_thickness_mm*0.5]]) # half-thickness up in neg Z-axis
+
+    adjusted_intersections = []
+    for line in intersections:
+        new_line = []
+        for point in line:
+            p_pixel_2d = np.array([point[0], point[1], 1.0], dtype=np.float32).reshape(3, 1)
+
+            # Transform the grid pixel coordinates into 2D world coordinates
+            P_world_homogenous = H_inv @ p_pixel_2d
+            P_world_homogenous /= P_world_homogenous[2] # Normalize by the scale factor
+
+            # Construct the 3D world grid point (setting Z to 0 because it's flat on the board)
+            P_world = np.array([[P_world_homogenous[0][0]], [P_world_homogenous[1][0]], [0.0]], dtype=np.float32)
+
+            P_offset_cam = R @ (P_world + v_world) + t # Transform offset point to Camera 3D space
+
+            # Project offset grid point (stone center) from 3D camera space to 2D pixel coords
+            p_offset_pixel = K @ P_offset_cam
+            p_offset_pixel /= p_offset_pixel[2] # Divide by Z
+
+            new_point = (int(round(p_offset_pixel[0][0])), int(round(p_offset_pixel[1][0])))
+            new_line.append(new_point)
+
+        adjusted_intersections.append(new_line)
+    if show_all:
+        image_g = image.copy()
+        draw = ImageDraw.Draw(image_g)
+        r = 2
+        for line in intersections:
+            for (x, y) in line:
+                draw.ellipse((x-r, y-r, x+r, y+r), fill=(120, 255, 120)) # green for original intersections
+        for line in adjusted_intersections:
+            for (x, y) in line:
+                draw.ellipse((x-r, y-r, x+r, y+r), fill=(120, 120, 255)) # blue for adjusted intersections
+        do_something(image_g, "intersections (green = grid, blue = stone thickness)", name="intersections")
+
+    return adjusted_intersections
+
