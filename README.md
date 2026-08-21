@@ -32,11 +32,14 @@ I converted the test runner to python from bash:
 ```
 python runtests.py 
 ```
-One fails seemingly due to a minor issue with detecting stone color. I think some small roundoff error on grid calculation shifts the grid sample point just off the stone. I suspect the primary problem is not shifting the grid points up half a stone height in world space using the homography from the perspective warp and the known expected relative size of stones vs grid widths. This would better center the grid sample points on the the stones.
+One fails seemingly due to a minor issue with detecting stone color:
 ```
 tests failed:
     C:\[...]\imago\tests\t2\t2_101.jpg
 ```
+I've added adjustment to grid sample positions to account for stone thickness:
+<img width="473" height="380" alt="image" src="https://github.com/user-attachments/assets/0a818b1b-a94e-42e1-acc6-b2f4289eedae" />
+
 Below is the readme from Tomas--note, it is out of date about required versions.
 
 # Imago Go Image Recognition
