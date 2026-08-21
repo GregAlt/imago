@@ -5,6 +5,7 @@ from operator import itemgetter
 import colorsys
 
 from PIL import ImageDraw
+from PIL import Image
 
 import filters
 import k_means
@@ -51,7 +52,7 @@ def b_intersects(image, lines, show_all, do_something, logger):
 
     return intersections
 
-def board(image, intersections, show_all, do_something, logger):
+def board(image, unwarped, H, intersections, crosses, circles, show_all, do_something, logger):
     """Find stone colors and return board situation."""
 
 #    image_c = filters.color_enhance(image)
@@ -61,17 +62,21 @@ def board(image, intersections, show_all, do_something, logger):
     image_c = image
     
     board_raw = []
-    
-    for line in intersections:
-        board_raw.append([stone_color_raw(image_c, intersection) for intersection in
-                      line])
+
+    im = np.asarray(unwarped)
+    for int_line, cross_line, circle_line in zip(intersections, crosses, circles, strict=True):
+        for intersection, cross, circle in zip(int_line, cross_line, circle_line, strict=True):
+            if circle and not cross and circle[2] >= 0.7:
+                board_raw.append([stone_color_circle(im, circle)])
+            else:
+                board_raw.append([stone_color_raw(image_c, intersection)])
+
     board_raw = sum(board_raw, [])
 
     ### Show color distribution
 
     if show_all:
         import matplotlib.pyplot as pyplot
-        from PIL import Image
         fig = pyplot.figure(figsize=(8, 6))
         luma = [s[0] for s in board_raw]
         saturation = [s[1] for s in board_raw]
@@ -169,8 +174,30 @@ def rgb2lumsat(color):
         saturation = 1. - ((3. * min(color)) / sum(color)) 
     return luma, saturation
 
-def stone_color_raw(image, pt):
-    """Given image and coordinates, return stone color."""
+def stone_color_circle_rgb(im, circle):
+    c, r, a, d = circle
+    cx, cy = c
+
+    h, w = im.shape[:2]
+    y, x = np.ogrid[:h, :w]
+    rgb = np.median(im[(x - cx)**2 + (y - cy)**2 <= r**2], axis=0)/255.0
+    return rgb
+
+def process_color(rgb):
+    hue, luma, saturation = colorsys.rgb_to_hls(*rgb) 
+
+    # correct saturation to be more perceptual, without high spread near white
+    saturation *=  1.0 - abs(2.0 * luma - 1.0)        
+    color = colorsys.hls_to_rgb(hue, 0.5, 1.)    
+    return luma, saturation, color, hue
+
+def stone_color_circle(im, circle):
+    """Given image and stone circle, return stone color."""
+    rgb = stone_color_circle_rgb(im, circle)
+    return process_color(rgb)
+
+def stone_color_raw_rgb(image, pt):
+    """Given image and coordinates, return RGB stone color."""
     x, y = pt
     size = 3 
     points = []
@@ -187,31 +214,40 @@ def stone_color_raw(image, pt):
     color = (sum(p[0] for p in points) / norm,
              sum(p[1] for p in points) / norm,
              sum(p[2] for p in points) / norm)
-    hue, luma, saturation = colorsys.rgb_to_hls(*color)
-    color = colorsys.hls_to_rgb(hue, 0.5, 1.)
-    return luma, saturation, color, hue
+    return color
 
-def adjust_for_stone_thickness(intersections, image, show_all, do_something):
-    """Given grid intersections on the board, use homography to find stone centers above the grid"""
-    # this doesn't have to be perfect, so it's ok making some reasonable assumptions
-    goban_width_mm = 439.0 # standard 19x19 goban grid is 424x454mm, average to square
-    go_stone_thickness_mm = 10.0 # Typical: size 28-36 (7.5 - 10.1mm), can be size 50 (14.3mm)
+def stone_color_raw(image, pt):
+    """Given image and coordinates, return stone color."""
+    rgb = stone_color_raw_rgb(image, pt)
+    return process_color(rgb)
 
+def calc_camera_intrinsics_estimate():
     # typical phone camera with 80deg FOV, square pixels, and 640x480 resolution
-    fx = fy = 381.36 # f_pixels = W_pixels / (2 * tan(theta/2)) = 640 / (2 * tan(80deg/2))
+    # 2x and 3x work, but 1x and 4x causes some tests to fail
+    fx = fy = 2*381.36 # f_pixels = W_pixels / (2 * tan(theta/2)) = 640 / (2 * tan(80deg/2)) = 381.36 [2x means about 45.52deg]
     cx, cy = 320.0, 240.0 # center of 640x480 image
     K = np.array([[fx,  0, cx], [ 0, fy, cy], [ 0,  0,  1]], dtype=np.float32) # cam intrinsics
+    return K
 
-    # Define source quadrilateral (world/surface in mm), assume flat, square grid
-    pts_src = np.array([[1, 1], [-1, 1], [-1, -1], [1, -1]], dtype=np.float32) * 0.5 * goban_width_mm
+def calc_homography_from_intersections(intersections, K):
+    # this doesn't have to be perfect, so it's ok making some reasonable assumptions
+    goban_width_mm = 439.0 # standard 19x19 goban grid is 424x454mm, average to square
 
     # Destination quadrilateral (perspective, in pixel coords)
     hull = cv2.convexHull(np.array(sum(intersections, []), dtype=np.float32))
     pts_dst = cv2.approxPolyDP(hull, 0.02 * cv2.arcLength(hull, True), True).reshape(-1, 2)
 
+    dst_tmp = pts_dst - pts_dst.mean(axis=0)
+    angles_deg = np.rad2deg(np.arctan2(dst_tmp[:, 1], dst_tmp[:, 0]))
+    #print(angles_deg.astype(int))
+
+    # Define source quadrilateral (world/surface in mm), assume flat, square grid
+    pts_src = np.array([[1, 1], [-1, 1], [-1, -1], [1, -1]], dtype=np.float32) * 0.5 * goban_width_mm
+
     H, status = cv2.findHomography(pts_src, pts_dst, cv2.RANSAC, 5.0)
-    H_inv = np.linalg.inv(H)  # Invert to go from Pixel Space -> World Space
-  
+    return H
+
+def extract_3d_transform_from_homography(K, H):
     # Extract true physical rotation and translation directly from H and K
     # Stripping the camera intrinsics from the homography yields [r1, r2, t] up to a scale factor
     r1_r2_t = np.linalg.inv(K) @ H
@@ -222,16 +258,21 @@ def adjust_for_stone_thickness(intersections, image, show_all, do_something):
 
     r1 = r1_r2_t_scaled[:, 0:1]
     r2 = r1_r2_t_scaled[:, 1:2]
-    r3 = np.cross(r1.flatten(), r2.flatten()).reshape(3, 1) 
+    r3 = np.cross(r1.flatten(), r2.flatten()).reshape(3, 1)
+
     R = np.hstack((r1, r2, r3)) # reconstructed 3D rotation matrix
     t = r1_r2_t_scaled[:, 2:3] # translation in real-world mm
+    return R, t
 
-    #from scipy.spatial.transform import Rotation
-    #euler_angles = Rotation.from_matrix(R).as_euler('xyz', degrees=True).astype(int)
-    #print(f"R: {R}, eulers:{euler_angles}, t: {t.T}")
+def get_vertically_adjusted_intersections(intersections, height, H, K, show_all):
+    R, t = extract_3d_transform_from_homography(K, H)
+    if show_all:
+        from scipy.spatial.transform import Rotation
+        euler_angles = Rotation.from_matrix(R).as_euler('xyz', degrees=True).astype(int)
+        print(f"Camera angles in degrees: {euler_angles} Pitch is first, 0 is straight down, -90 is edge on")
 
-    v_world = np.array([[0.0], [0.0], [-go_stone_thickness_mm*0.5]]) # half-thickness up in neg Z-axis
-
+    H_inv = np.linalg.inv(H)  # Invert to go from Pixel Space -> World Space
+    v_world = np.array([[0.0], [0.0], [-height]]) # half-thickness up in neg Z-axis
     adjusted_intersections = []
     for line in intersections:
         new_line = []
@@ -255,17 +296,104 @@ def adjust_for_stone_thickness(intersections, image, show_all, do_something):
             new_line.append(new_point)
 
         adjusted_intersections.append(new_line)
+    return adjusted_intersections
+
+def draw_intersections_on_image(intersections, H, draw, r, color):
+    for line in intersections:
+        for p in line:
+            (x,y,z) = H @ np.array([p[0],p[1],1])
+            x /= z
+            y /= z
+            draw.ellipse((x-r, y-r, x+r, y+r), fill=color) 
+
+def find_crosses(intersections, H, image):
+    pad = 32
+    window = 12
+    crosses=[]
+    padded_image = cv2.copyMakeBorder(image, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
+    for line in intersections:
+        cross_line=[]
+        for p in line:
+            cross = None
+            (x,y,z) = H @ np.array([p[0],p[1],1])
+            x = int(round(x/z))
+            y = int(round(y/z))
+            slice = padded_image[y+pad-window : y+pad+window, x+pad-window : x+pad+window]    
+
+            row_sums = np.sum(slice, axis=1)
+            col_sums = np.sum(slice, axis=0)
+            peak_row_idx = np.argmax(row_sums)
+            peak_row_val = row_sums[peak_row_idx]
+            peak_col_idx = np.argmax(col_sums)
+            peak_col_val = row_sums[peak_col_idx]
+            row_background = np.delete(row_sums, peak_row_idx)
+            bg_row_mean = np.mean(row_background)
+            bg_row_std = np.std(row_background) if np.std(row_background) > 0 else 1.0            
+            col_background = np.delete(col_sums, peak_col_idx)
+            bg_col_mean = np.mean(col_background)
+            bg_col_std = np.std(col_background) if np.std(col_background) > 0 else 1.0  
+            row_relative_score = (peak_row_val - bg_row_mean) / bg_row_std          
+            col_relative_score = (peak_col_val - bg_col_mean) / bg_col_std  
+            delta = (peak_row_idx-window, peak_col_idx-window)
+            score = (row_relative_score, col_relative_score)
+            if abs(delta[0])<=3 and abs(delta[1])<=3 and score[0] > -1 and score[1] > -1:
+                rc = (x-window+peak_col_idx, y-window+peak_row_idx)
+                start = (x-window, y-window)
+                cross = (rc, start, window, delta, score)
+            cross_line.append(cross)
+        crosses.append(cross_line)
+
+    return crosses
+
+
+
+def do_hough_circles(intersections, H, image):
+    from skimage.transform import hough_circle, hough_circle_peaks
+
+    # find circles for stones (will have some false negative/positives!)
+    pad = 32
+    window = 18
+    circles = []
+    padded_image = cv2.copyMakeBorder(image, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
+    for line in intersections:
+        circle_line = []
+        for p in line:
+            circle = None
+            (x,y,z) = H @ np.array([p[0],p[1],1])
+            x,y = int(round(x/z)), int(round(y/z))
+            slice = padded_image[y+pad-window : y+pad+window, x+pad-window : x+pad+window]    
+
+            radii = np.arange(8, 16) # (8 to 16 inclusive) 
+            hough = hough_circle(slice, radii)
+            if hough is not None and hough.size > 0:
+                accum, cx, cy, radii = hough_circle_peaks(hough, radii, total_num_peaks=1)
+                if len(radii) > 0 and accum > 0.5:
+                    c, radius = np.array([cx[0],cy[0]]), radii[0]
+                    if radius > 9:
+                        dist = np.linalg.norm(c - window)
+                        if dist-radius < -2:
+                            circle = ((x-window+c[0], y-window+c[1]), radius, accum, dist)
+            circle_line.append(circle)
+        circles.append(circle_line)
+    return circles
+
+def adjust_for_stone_thickness(intersections, image, im_h, show_all, do_something, logger):
+    """Given grid intersections on the board, use homography to find stone centers above the grid"""
+    K = calc_camera_intrinsics_estimate()
+    H = calc_homography_from_intersections(intersections, K)  
+    H_inv = np.linalg.inv(H)  # Invert to go from Pixel Space -> World Space
+
+    go_stone_thickness_mm = 10.0 # Typical: size 28-36 (7.5 - 10.1mm), can be size 50 (14.3mm)
+    adjusted_intersections = get_vertically_adjusted_intersections(intersections, go_stone_thickness_mm*0.5, H, K, show_all)
+    H2 = calc_homography_from_intersections(adjusted_intersections, K)  
+
     if show_all:
+        # draw grid intersections and raised stone centers on original image
         image_g = image.copy()
         draw = ImageDraw.Draw(image_g)
-        r = 2
-        for line in intersections:
-            for (x, y) in line:
-                draw.ellipse((x-r, y-r, x+r, y+r), fill=(120, 255, 120)) # green for original intersections
-        for line in adjusted_intersections:
-            for (x, y) in line:
-                draw.ellipse((x-r, y-r, x+r, y+r), fill=(120, 120, 255)) # blue for adjusted intersections
+        draw_intersections_on_image(intersections, np.identity(3), draw, 2, (120, 255, 120)) # green for original intersections
+        draw_intersections_on_image(adjusted_intersections, np.identity(3), draw, 2, (120, 120, 255)) # blue for adjusted intersections
         do_something(image_g, "intersections (green = grid, blue = stone thickness)", name="intersections")
 
-    return adjusted_intersections
+    return adjusted_intersections, H, H2
 

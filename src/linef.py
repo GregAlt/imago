@@ -23,7 +23,7 @@ def prepare(image, show_image, logger):
     im_edges = filters.edge_detection(im_l)
     show_image(im_edges, "edge detection")
 
-    im_h = filters.high_pass(im_edges, 100)
+    im_h = filters.high_pass(im_edges, 128)
     show_image(im_h, "high pass filters")
 
     return im_h
@@ -70,13 +70,11 @@ def run_ransac(image):
     line2 = [line_to_points(line2, 0), line_to_points(line2, width - 1)]
     return [sorted(points), sorted(points2)], line, line2
 
-def find_lines(image, show_image, logger):
+def find_lines(image, im_h, show_image, logger):
     """Find lines in the *image*."""
     
     logger("preprocessing")
     show_image(image, "original image")
-
-    im_h = prepare(image, show_image, logger)
 
     hough = Hough.default(im_h)
 

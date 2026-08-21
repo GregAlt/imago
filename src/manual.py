@@ -69,7 +69,9 @@ def find_lines(im_orig):
     line_width = 1
     lines_r = []
 
-    def dst((x1, y1), (x2, y2)):
+    def dst(a, b):
+        (x1, y1) = a
+        (x2, y2) = b
         return (x1 - x2) ** 2 + (y1 - y2) ** 2
 
     while True:
@@ -77,7 +79,7 @@ def find_lines(im_orig):
             if event.type == pygame.QUIT or event.type == pygame.KEYDOWN:
                 pygame.quit()
                 if len(corners) == 4:
-                    return lines_r
+                    return lines_r, corners
                 else:
                     raise UserQuitError 
             if event.type == pygame.MOUSEBUTTONDOWN:
@@ -95,7 +97,7 @@ def find_lines(im_orig):
                     try:
                         l_vert, l_hor = lines(corners)
                     except Exception as e:
-                        print "exception!", e
+                        print("exception!", e)
                         corners = corners[:-1]
                         continue
                     for l in l_vert:
@@ -114,5 +116,23 @@ def find_lines(im_orig):
 
         screen.display_picture(im)
         clock.tick(15)
+
+def lines_from_corners(corners, size):
+    l_vert, l_hor = lines(corners)
+    lines_r = [[l2ad(l, size) for l in l_vert], 
+                [l2ad(l, size) for l in l_hor]]
+    return lines_r
+
+def corners_from_intersections(intersections):
+    import cv2
+    hull = cv2.convexHull(np.array(sum(intersections, []), dtype=np.float32))
+    corners = cv2.approxPolyDP(hull, 0.02 * cv2.arcLength(hull, True), True).reshape(-1, 2)
+
+    # sort the corners
+    snd = lambda l: map(lambda x: x[1], l)
+    center = (sum(fst(corners))/4., sum(snd(corners))/4.)
+    angles = list(map(lambda x: (np.angle(x[0] - center[0] + (x[1] - center[1])*1j), x), corners))
+    corners = list(snd(sorted(angles)))
+    return corners
 
 
