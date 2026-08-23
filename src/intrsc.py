@@ -64,12 +64,19 @@ def board(image, unwarped, H, intersections, crosses, circles, show_all, do_some
     board_raw = []
 
     im = np.asarray(unwarped)
+    im_c = np.asarray(image_c)
     for int_line, cross_line, circle_line in zip(intersections, crosses, circles, strict=True):
         for intersection, cross, circle in zip(int_line, cross_line, circle_line, strict=True):
             if circle and not cross and circle[2] >= 0.7:
-                board_raw.append([stone_color_circle(im, circle)])
+                c, r, a, d = circle
+                pixels = get_circle_pixels(im, c, r)
+                rgb = np.median(pixels, axis=0)
             else:
-                board_raw.append([stone_color_raw(image_c, intersection)])
+                # for now, match Tomas' original math -- though I'd prefer median and unwarped image
+                # also take into account circles and crosses
+                pixels = get_square_pixels(im_c, intersection, 3)
+                rgb = np.mean(pixels, axis=0)
+            board_raw.append([process_color(rgb/255.0)])
 
     board_raw = sum(board_raw, [])
 
@@ -174,52 +181,26 @@ def rgb2lumsat(color):
         saturation = 1. - ((3. * min(color)) / sum(color)) 
     return luma, saturation
 
-def stone_color_circle_rgb(im, circle):
-    c, r, a, d = circle
+def get_circle_pixels(im, c, r):
     cx, cy = c
-
     h, w = im.shape[:2]
     y, x = np.ogrid[:h, :w]
-    rgb = np.median(im[(x - cx)**2 + (y - cy)**2 <= r**2], axis=0)/255.0
-    return rgb
+    return im[(x - cx)**2 + (y - cy)**2 <= r**2]
 
 def process_color(rgb):
     hue, luma, saturation = colorsys.rgb_to_hls(*rgb) 
-
-    # correct saturation to be more perceptual, without high spread near white
-    saturation *=  1.0 - abs(2.0 * luma - 1.0)        
+    saturation *=  1.0 - abs(2.0 * luma - 1.0) # correct to be more perceptual, without high spread near white
     color = colorsys.hls_to_rgb(hue, 0.5, 1.)    
     return luma, saturation, color, hue
 
-def stone_color_circle(im, circle):
-    """Given image and stone circle, return stone color."""
-    rgb = stone_color_circle_rgb(im, circle)
-    return process_color(rgb)
-
-def stone_color_raw_rgb(image, pt):
-    """Given image and coordinates, return RGB stone color."""
+def get_square_pixels(image, pt, size_2):
+    """Given image, coordinates, and half size, return square block of pixels."""
     x, y = pt
-    size = 3 
-    points = []
-    for i in range(-size, size + 1):
-        for j in range(-size, size + 1):
-            try:
-                points.append(image.getpixel((x + i, y + j)))
-            except IndexError:
-                pass
-    norm = float(len(points))
-    if norm == 0:
-        return 0, 0, (0, 0, 0) #TODO trow exception here
-    norm = float(norm*255)
-    color = (sum(p[0] for p in points) / norm,
-             sum(p[1] for p in points) / norm,
-             sum(p[2] for p in points) / norm)
-    return color
-
-def stone_color_raw(image, pt):
-    """Given image and coordinates, return stone color."""
-    rgb = stone_color_raw_rgb(image, pt)
-    return process_color(rgb)
+    h, w, c = image.shape
+    y_min, y_max = max(0, y - size_2), min(h, y + size_2 + 1)
+    x_min, x_max = max(0, x - size_2), min(w, x + size_2 + 1)
+    block = image[y_min:y_max, x_min:x_max].reshape(-1, c)
+    return block
 
 def calc_camera_intrinsics_estimate():
     # typical phone camera with 80deg FOV, square pixels, and 640x480 resolution
