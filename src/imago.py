@@ -118,8 +118,8 @@ def draw_crosses_and_circles(unwarped_orig, H, H2, circles, crosses, do_somethin
 def find_lines_and_corners(args, image, im_h, show_all, do_something, logger):
     corners = None
     ##### TODO make cached corners optional, also compare with known correct corners
-    #corners = read_cached_corners(args.files[0][:-4] + "_corners.txt")
-    #print("using cached corners", file=sys.stderr)
+    # corners = read_cached_corners(args.files[0][:-4] + "_corners.txt")
+    # print("using cached corners", file=sys.stderr)
     #####
 
     if corners is not None:
@@ -230,7 +230,7 @@ def main():
     if show_all:
         draw_crosses_and_circles(unwarped_orig, H, H2, circles, crosses, do_something)
 
-    board = intrsc.board(image, unwarped_orig, H2, adjusted_intersections, crosses, circles, show_all, do_something, logger)
+    board = intrsc.board(unwarped_orig, adjusted_H2, adjusted_intersections, crosses, circles, show_all, do_something, logger)
 
     logger("finished")
 
@@ -257,7 +257,7 @@ def main():
             if image.size[0] > args.w:
                 image = image.resize((args.w, int((float(args.w)/image.size[0]) *
                               image.size[1])), Image.ANTIALIAS)
-            board = intrsc.board(image, unwarped_orig, H2, adjusted_intersections, crosses, circles, show_all, do_something, logger)
+            board = intrsc.board(unwarped_orig, adjusted_H2, adjusted_intersections, crosses, circles, show_all, do_something, logger)
             if args.sgf_output:
                 game.addMove(board)
             else:

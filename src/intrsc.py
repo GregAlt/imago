@@ -52,30 +52,22 @@ def b_intersects(image, lines, show_all, do_something, logger):
 
     return intersections
 
-def board(image, unwarped, H, intersections, crosses, circles, show_all, do_something, logger):
+def board(unwarped, H, intersections, crosses, circles, show_all, do_something, logger):
     """Find stone colors and return board situation."""
-
-#    image_c = filters.color_enhance(image)
-#    if show_all:
-#        do_something(image_c, "white balance")
-
-    image_c = image
-    
     board_raw = []
 
     im = np.asarray(unwarped)
-    im_c = np.asarray(image_c)
     for int_line, cross_line, circle_line in zip(intersections, crosses, circles, strict=True):
         for intersection, cross, circle in zip(int_line, cross_line, circle_line, strict=True):
             if circle and not cross and circle[2] >= 0.7:
                 c, r, a, d = circle
                 pixels = get_circle_pixels(im, c, r)
-                rgb = np.median(pixels, axis=0)
             else:
-                # for now, match Tomas' original math -- though I'd prefer median and unwarped image
-                # also take into account circles and crosses
-                pixels = get_square_pixels(im_c, intersection, 3)
-                rgb = np.mean(pixels, axis=0)
+                # TODO also take into account circles and crosses
+                (x,y,z) = H @ np.array([intersection[0],intersection[1],1])
+                intersection_unwarped = int(round(x/z)), int(round(y/z))
+                pixels = get_square_pixels(im, intersection_unwarped, 3)
+            rgb = np.median(pixels, axis=0)
             board_raw.append([process_color(rgb/255.0)])
 
     board_raw = sum(board_raw, [])
