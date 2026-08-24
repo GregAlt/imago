@@ -50,6 +50,7 @@ def process_image(image, imago_save_path) :
     logger = Logger() if debug else void
     save_steps = imago.Imsave(imago_save_path).save if debug_save_steps else void
 
+    # TODO: fix this to match imago.py
     lines, l1, l2, bounds, hough = linef.find_lines(image, save_steps, logger)
     grid, lines = gridf.find(lines, image.size, l1, l2, bounds, hough, debug, save_steps, logger)
     intersections = intrsc.b_intersects(image, lines, debug, save_steps, logger)

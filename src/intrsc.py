@@ -38,8 +38,8 @@ def b_intersects(image, lines, show_all, do_something, logger):
     an0 = (sum([l[0] for l in lines[0]]) / len(lines[0]) - pi / 2)
     an1 = (sum([l[0] for l in lines[1]]) / len(lines[1]) - pi / 2)
     if an0 > an1:
-        lines = [lines[1], lines[0]]
-
+        # TODO - this fixes a rare vertical flip - should fix upstream!
+        lines[1] = list(reversed(lines[1]))
     intersections = intersections_from_angl_dist(lines, image.size)
 
     if show_all:
@@ -52,23 +52,43 @@ def b_intersects(image, lines, show_all, do_something, logger):
 
     return intersections
 
-def board(unwarped, H, intersections, crosses, circles, show_all, do_something, logger):
-    """Find stone colors and return board situation."""
+# TODO: dedupe this function (also in imago.py)
+def apply_homography(H, p):
+    """Applies a 3x3 homography matrix to a 2D point using projective division."""
+    x, y, z = H @ np.array([p[0], p[1], 1]) # Convert to homogeneous coordinates and multiply
+    return (x / z, y / z) # Projective division (normalize by scale factor z)
+
+def board(unwarped, stone_H, stone_intersections, crosses, circles, show_all, do_something, logger):
+    """Find stone colors and return board situation. Intersections are still warped but shifted vertically for perspective stone position"""
     board_raw = []
 
-    im = np.asarray(unwarped)
-    for int_line, cross_line, circle_line in zip(intersections, crosses, circles, strict=True):
-        for intersection, cross, circle in zip(int_line, cross_line, circle_line, strict=True):
+    im = np.asarray(unwarped) # image unwarped using stone_H (raised a bit vertically)
+    for row, (stone_int_line, cross_line, circle_line) in enumerate(zip(stone_intersections, crosses, circles, strict=True)):
+        for stone_intersection, cross, circle in zip(stone_int_line, cross_line, circle_line, strict=True):
             if circle and not cross and circle[2] >= 0.7:
                 c, r, a, d = circle
                 pixels = get_circle_pixels(im, c, r)
             else:
                 # TODO also take into account circles and crosses
-                (x,y,z) = H @ np.array([intersection[0],intersection[1],1])
-                intersection_unwarped = int(round(x/z)), int(round(y/z))
+                intersection_unwarped = apply_homography(stone_H, stone_intersection) # stone intersection in stone unwarped image
+                intersection_unwarped = np.round(intersection_unwarped).astype(int)
                 pixels = get_square_pixels(im, intersection_unwarped, 3)
+
+                if show_all:
+                    # overwrite with median value used, with red border, to visualize
+                    x, y = intersection_unwarped
+                    h, w, c = im.shape
+                    y_min, y_max = max(0, y - 3), min(h, y + 3 + 1)
+                    x_min, x_max = max(0, x - 3), min(w, x + 3 + 1)
+                    rgb = np.median(im[y_min:y_max, x_min:x_max], axis=(0, 1)).astype(im.dtype)
+                    im[y_min-1:y_max+1, x_min-1:x_max+1] = np.array([255,0,0])
+                    im[y_min:y_max, x_min:x_max] = rgb
+
             rgb = np.median(pixels, axis=0)
             board_raw.append([process_color(rgb/255.0)])
+
+    if show_all:
+        do_something(Image.fromarray(im), "overwrite")
 
     board_raw = sum(board_raw, [])
 
@@ -202,6 +222,19 @@ def calc_camera_intrinsics_estimate():
     K = np.array([[fx,  0, cx], [ 0, fy, cy], [ 0,  0,  1]], dtype=np.float32) # cam intrinsics
     return K
 
+def sort_points_CW_from_TL(pts):
+    # Sort points based on arctan2 of angles (-180 to 180)  [TL, TR, BR, BL]
+    # Note: TL of image is 0,0. CW -179 center left, -90 top, 0 right, +90 bottom, +179 center left
+    tmp = pts - pts.mean(axis=0)
+    angles_deg = np.rad2deg(np.arctan2(tmp[:, 1], tmp[:, 0]))
+    sort_indices = np.argsort(angles_deg)
+    pts = pts[sort_indices]
+    return pts
+
+def get_square_points_CW_from_TL():
+    '''Square corner points, centered at 0,0, side length 2, ordered clockwise: [TL, TR, BR, BL]'''
+    return np.array([[-1, -1], [1, -1], [1, 1], [-1, 1]], dtype=np.float32)
+
 def calc_homography_from_intersections(intersections, K):
     # this doesn't have to be perfect, so it's ok making some reasonable assumptions
     goban_width_mm = 439.0 # standard 19x19 goban grid is 424x454mm, average to square
@@ -209,13 +242,8 @@ def calc_homography_from_intersections(intersections, K):
     # Destination quadrilateral (perspective, in pixel coords)
     hull = cv2.convexHull(np.array(sum(intersections, []), dtype=np.float32))
     pts_dst = cv2.approxPolyDP(hull, 0.02 * cv2.arcLength(hull, True), True).reshape(-1, 2)
-
-    dst_tmp = pts_dst - pts_dst.mean(axis=0)
-    angles_deg = np.rad2deg(np.arctan2(dst_tmp[:, 1], dst_tmp[:, 0]))
-    #print(angles_deg.astype(int))
-
-    # Define source quadrilateral (world/surface in mm), assume flat, square grid
-    pts_src = np.array([[1, 1], [-1, 1], [-1, -1], [1, -1]], dtype=np.float32) * 0.5 * goban_width_mm
+    pts_dst = sort_points_CW_from_TL(pts_dst)
+    pts_src =  get_square_points_CW_from_TL() * 0.5 * goban_width_mm
 
     H, status = cv2.findHomography(pts_src, pts_dst, cv2.RANSAC, 5.0)
     return H

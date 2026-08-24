@@ -157,6 +157,8 @@ def find_lines_and_corners(args, image, im_h, show_all, do_something, logger):
                 draw.line(l, fill=(64, 255, 64), width=1)
             do_something(im_g, "grid", name="grid")
 
+    # TODO: remove this hack - generate in right order so we don't have to swap
+    lines = [lines[1], lines[0]]
     return lines, corners
 
 def normalize_black_level(image):
@@ -228,21 +230,21 @@ def main():
     grid_intersections = intrsc.b_intersects(image, lines, show_all, do_something, logger)
     pts = manual.corners_from_intersections(grid_intersections)
     write_detected_corners(pts, args.files[0][:-4] + "_corners.out")
-    adjusted_intersections, H, H2 = intrsc.adjust_for_stone_thickness(grid_intersections, image, im_h, show_all, do_something, logger)
+    stone_intersections, H, H2 = intrsc.adjust_for_stone_thickness(grid_intersections, image, im_h, show_all, do_something, logger)
     gridless = remove_grid_lines(image)
     stone_edge = linef.prepare(gridless, do_something, logger) 
     unwarped_grid_edge, adjusted_H = unwarp_image(im_h, H) # original edge image (using grid homography)
     unwarped_stone_edge, adjusted_H2 = unwarp_image(stone_edge, H2) # gridless edge image (using stone homography)
     unwarped_orig, adjusted_H2 = unwarp_image(image, H2) # original image (using stone homography)
     crosses = intrsc.find_crosses(grid_intersections, adjusted_H, unwarped_grid_edge)
-    circles = intrsc.do_hough_circles(adjusted_intersections, adjusted_H2, unwarped_stone_edge)
+    circles = intrsc.do_hough_circles(stone_intersections, adjusted_H2, unwarped_stone_edge)
 
     unwarped_orig = normalize_black_level(unwarped_orig)
 
     if show_all:
         draw_crosses_and_circles(unwarped_orig, H, H2, circles, crosses, do_something)
 
-    board = intrsc.board(unwarped_orig, adjusted_H2, adjusted_intersections, crosses, circles, show_all, do_something, logger)
+    board = intrsc.board(unwarped_orig, adjusted_H2, stone_intersections, crosses, circles, show_all, do_something, logger)
 
     logger("finished")
 
@@ -269,7 +271,7 @@ def main():
             if image.size[0] > args.w:
                 image = image.resize((args.w, int((float(args.w)/image.size[0]) *
                               image.size[1])), Image.ANTIALIAS)
-            board = intrsc.board(unwarped_orig, adjusted_H2, adjusted_intersections, crosses, circles, show_all, do_something, logger)
+            board = intrsc.board(unwarped_orig, adjusted_H2, stone_intersections, crosses, circles, show_all, do_something, logger)
             if args.sgf_output:
                 game.addMove(board)
             else:

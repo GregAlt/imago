@@ -128,11 +128,5 @@ def corners_from_intersections(intersections):
     hull = cv2.convexHull(np.array(sum(intersections, []), dtype=np.float32))
     corners = cv2.approxPolyDP(hull, 0.02 * cv2.arcLength(hull, True), True).reshape(-1, 2)
 
-    # sort the corners
-    snd = lambda l: map(lambda x: x[1], l)
-    center = (sum(fst(corners))/4., sum(snd(corners))/4.)
-    angles = list(map(lambda x: (np.angle(x[0] - center[0] + (x[1] - center[1])*1j), x), corners))
-    corners = list(snd(sorted(angles)))
-    return corners
-
-
+    import manual_lines
+    return manual_lines.sort_points_CW_from_TL(corners)
