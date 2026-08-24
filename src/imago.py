@@ -159,6 +159,16 @@ def find_lines_and_corners(args, image, im_h, show_all, do_something, logger):
 
     return lines, corners
 
+def normalize_black_level(image):
+    '''Normalize with a black level from the center 95% (ignore things off-board)'''
+    border = int(image.shape[0] * 0.025)
+    center_patch = image[border:-border, border:-border]
+    # black_level = np.min(center_patch)
+    black_level = np.percentile(center_patch, 0.1) # 0.1% is roughly half the size of a stone
+    img_float = image.astype(np.float32)
+    norm_img = (img_float - black_level) * (255.0 / (255.0 - black_level))
+    clipped_img = np.clip(norm_img, 0, 255).astype(np.uint8)
+    return clipped_img
 
 # TODO factor this into smaller functions
 def main():
@@ -226,6 +236,8 @@ def main():
     unwarped_orig, adjusted_H2 = unwarp_image(image, H2) # original image (using stone homography)
     crosses = intrsc.find_crosses(grid_intersections, adjusted_H, unwarped_grid_edge)
     circles = intrsc.do_hough_circles(adjusted_intersections, adjusted_H2, unwarped_stone_edge)
+
+    unwarped_orig = normalize_black_level(unwarped_orig)
 
     if show_all:
         draw_crosses_and_circles(unwarped_orig, H, H2, circles, crosses, do_something)

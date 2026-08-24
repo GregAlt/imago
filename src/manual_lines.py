@@ -19,7 +19,7 @@ def lines(corners):
     
     #sort the corners:
     center = (sum(fst(corners))/4., sum(snd(corners))/4.)
-    angles = list(map(lambda x: (np.angle(x[0] - center[0] + (x[1] - center[1])*1j), x), corners))
+    angles = list(map(lambda x: (np.angle(x[1] - center[1] + (x[0] - center[0])*1j), x), corners))
     corners = list(snd(sorted(angles)))    
 
     gcorners = [(0,0), (0,100), (100, 100), (100,0)]
