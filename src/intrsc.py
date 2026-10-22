@@ -3,6 +3,9 @@
 from math import cos, tan, pi
 from operator import itemgetter
 import colorsys
+from scipy.spatial.distance import cdist
+from scipy.sparse.csgraph import minimum_spanning_tree, connected_components
+from collections import deque
 
 from PIL import ImageDraw
 from PIL import Image
@@ -109,12 +112,101 @@ def board(unwarped, stone_H, stone_intersections, crosses, circles, show_all, do
         image_p = Image.frombytes('RGBA', size, buff, 'raw')
         do_something(image_p, "color distribution")
 
+    ### Cluster colors into black, white, and empty intersections
+    # Replacement for K-means, using Minimum Spanning Tree analysis to find the gaps to cut
+    #  notes - Assumes the median brightness is an empty intersection, but what about
+    #          rare case of 200 black stones at end game after killing white?
+    #        - Handles the case where the jump from empty to black stones is larger 
+    #          relative to the density of the empty stones' colors, but doesn't necessarily 
+    #          have to be the largest jump towards the darkest point. I try to balance this 
+    #          because empty intersections are likely to be denser than stones
+
+    # 1. Prepare color data
     color_data = [(s[0], s[1]) for s in board_raw]
+    X = np.array(color_data, dtype=np.float64)
+    zipped_input = list(zip(color_data, range(len(color_data))))
 
-    init_x = sum(c[0] for c in color_data) / float(len(color_data))
+    # 2. Build network and construct the Minimum Spanning Tree (MST)
+    distance_matrix = cdist(X, X, 'euclidean')
+    mst_sparse = minimum_spanning_tree(distance_matrix)
 
-    clusters, score = k_means.cluster(3, 2,list(zip(color_data, range(len(color_data)))),
-                               [[0., 0.5], [init_x, 0.5], [1., 0.5]])
+    # Convert the upper-triangular SciPy MST representation into a 
+    # bidirectional adjacency list for effortless path traversal.
+    num_nodes = X.shape[0]
+    adj_list = {i: [] for i in range(num_nodes)}
+    mst_coo = mst_sparse.tocoo()
+    for u, v, w in zip(mst_coo.row, mst_coo.col, mst_coo.data):
+        adj_list[u].append((v, w))
+        adj_list[v].append((u, w))
+
+    # 3. Dual-Highway Scoring Optimizer 
+    mst_dense = mst_sparse.toarray()
+    if len(mst_coo.data) >= 3:
+        # assumes that median brightness is empty -- what about edge case of 200 black stones!?
+        global_median_brightness = np.median(X[:, 0])
+        root_node = np.argmin(np.abs(X[:, 0] - global_median_brightness))
+        root_edges = [weight for _, weight in adj_list[root_node]]
+        board_texture_baseline = np.max(root_edges) if len(root_edges) > 0 else 0.01
+                
+        # Single traversal to map paths from the root to all nodes simultaneously
+        paths = {root_node: []}
+        queue = deque([root_node])
+        while queue:
+            curr = queue.popleft()
+            for neighbor, weight in adj_list[curr]:
+                if neighbor not in paths:
+                    paths[neighbor] = paths[curr] + [(curr, neighbor, weight)]
+                    queue.append(neighbor)
+
+        # extract the two extreme highways (to darkest and lightest) by dictionary lookup
+        highways = [paths[np.argmin(X[:, 0])], paths[np.argmax(X[:, 0])]]
+
+        min_global_distance, multiplier = 0.06, 2.0
+        edges_to_cut = []
+
+        # scan towards both black and white to find cuts
+        for highway in highways:
+            if len(highway) > 0:
+                history_weights = []
+                best_score, best_cut = -1.0, None
+                
+                for idx, (u, v, weight) in enumerate(highway):
+                    local_baseline = np.max(history_weights) if len(history_weights) > 0 else board_texture_baseline
+                    
+                    if weight > (multiplier * local_baseline) and weight >= min_global_distance:
+                        # structural trade-off optimization formula
+                        candidate_score = (weight / local_baseline) * (1.0 - (idx / len(highway)))
+                        if candidate_score > best_score:
+                            best_score, best_cut = candidate_score, (u, v)
+                            
+                    history_weights.append(weight)
+                    
+                if best_cut is not None:
+                    edges_to_cut.append(best_cut)
+
+        # Execute cuts explicitly back on your sparse grid
+        for u, v in edges_to_cut:
+            mst_dense[u, v] = mst_dense[v, u] = 0
+
+    # 4. Extract graph components
+    num_components, labels = connected_components(minimum_spanning_tree(mst_dense), directed=False)
+
+    # 5. Arrange in clusters for final categorization [Black (0), Empty (1), White (2)]
+    # Group the zipped intersection data elements by their resolved component IDs, and sort groups
+    groups = {label: [] for label in np.unique(labels)}
+    for i, item in enumerate(zipped_input):
+        groups[labels[i]].append(item)
+    sorted_groups = sorted(groups.values(), key=len, reverse=True)
+
+    # Search for group containing root_node
+    empty_board_group = next((g for g in sorted_groups if any(item[1] == root_node for item in g)), sorted_groups[0])
+
+    # assign black and white clusters (if exist) based on brightness relative to empty cluster
+    clusters = [[], empty_board_group, []] 
+    empty_brightness = np.mean([item[0][0] for item in empty_board_group])
+    for stone_group in sorted_groups[1:]:
+        target_idx = 0 if np.mean([item[0][0] for item in stone_group]) < empty_brightness else 2
+        clusters[target_idx].extend(stone_group)
 
     if show_all:
         fig = pyplot.figure(figsize=(8, 6))

@@ -10,3 +10,4 @@ doc/*.pdf
 doc/*.synctex.gz
 doc/_build
 venv
+MiscExamples/*

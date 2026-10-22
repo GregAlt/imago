@@ -229,6 +229,13 @@ def main():
     lines, corners = find_lines_and_corners(args, image, im_h, show_all, do_something, logger)
     grid_intersections = intrsc.b_intersects(image, lines, show_all, do_something, logger)
     pts = manual.corners_from_intersections(grid_intersections)
+
+    # align grid intersections to the sorted corners, so first intersection is upper left, then clockwise
+    p = grid_intersections[0][0] # first interection (might not be upperleft, so find clockwise rotations needed)
+    rotations = next((i for i, (cx, cy) in enumerate(pts) if abs(cx - p[0]) <= 1.0 and abs(cy - p[1]) <= 1.0), None)
+    for _ in range(rotations % 4):
+        grid_intersections = [list(row) for row in zip(*grid_intersections[::-1])]
+
     write_detected_corners(pts, args.files[0][:-4] + "_corners.out")
     stone_intersections, H, H2 = intrsc.adjust_for_stone_thickness(grid_intersections, image, im_h, show_all, do_something, logger)
     gridless = remove_grid_lines(image)
